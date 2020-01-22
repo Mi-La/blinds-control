@@ -110,15 +110,149 @@ export default class BlindsControl extends Component {
         });
     }
 
-    componentDidMount = () => {
-        AppState.addEventListener('change', this.appStateChanged);
+    componentDidMount() {
+        AppState.addEventListener('change', this.onAppStateChanged);
     }
 
-    componentWillUnmount = () => {
-        AppState.removeEventListener('change', this.appStateChanged);
+    componentWillUnmount() {
+        AppState.removeEventListener('change', this.onAppStateChanged);
     }
 
-    appStateChanged = (state) => {
+    connectTcp(fromAppState = false) {
+        AsyncStorage.getItem("ip").then((ip) => {
+            console.log("connectTcp", ip);
+            this.connection = TcpSocket.createConnection({ host: ip, port: 1234 });
+            this.connection.on("connect", () => {
+                this.setState({ status: "connected" });
+                this.listConstrollers();
+            });
+            this.connection.on("error", (msg) => {
+                Alert.alert("Connection error!", msg);
+                this.disconnectTcp();
+            });
+            this.connection.on("data", this.onDataCallback);
+
+            if (!fromAppState) {
+                return AsyncStorage.setItem("connected", "1");
+            }
+        })
+    }
+
+    disconnectTcp(fromAppState = false) {
+        console.log("disconnectTcp");
+        this.connection && this.connection.destroy();
+        this.connection = null
+        this.setState({ status: "disconnected" });
+        this.removeControllers();
+
+        if (!fromAppState) {
+            return AsyncStorage.setItem("connected", "0");
+        }
+    }
+
+    sendCommand(command) {
+        this.lastCommand = command;
+        console.log(command);
+        try {
+            this.connection.write(command);
+        } catch (err) {
+            Alert.alert("Failed to send command!", err.message);
+            this.disconnectTcp();
+        }
+    }
+
+    parseJSON(string) {
+        let parsed = null;
+        try {
+            parsed = JSON.parse(string);
+        } catch (err) {
+            Alert.alert("Failed to parse controllers list!", err);
+            this.disconnectTcp();
+        }
+        return parsed;
+    }
+
+    createControllers(data) {
+        let list = this.parseJSON(data.toString());
+        if (!list)
+            return;
+
+        if (list.length == 0) {
+            Alert.alert("No controllers found!");
+            this.disconnectTcp();
+            return;
+        }
+
+        console.log(`Found ${list.length} controllers.`);
+
+        let controllers = []
+        for (let i = 0; i < list.length; ++i) {
+            const controller = list[i];
+            controllers.push(
+                <View key={i} style={styles.controller}>
+                    <View style={styles.controllerHeading}>
+                        <Text style={styles.controllerName}>{controller.name}</Text>
+                        <OpacityButton style={styles.progButton} titleStyle={styles.progButtonTitle}
+                                title="P" onPress={this.onButtonPress.bind(this, controller.name, "prog")}/>
+                    </View>
+                    <View style={styles.buttons}>
+                        <OpacityButton title="Up" style={styles.button}
+                                onPress={this.onButtonPress.bind(this, controller.name, "up")}/>
+                        <OpacityButton title="My" style={styles.buttonMy}
+                                onPress={this.onButtonPress.bind(this, controller.name, "my")}/>
+                        <OpacityButton title="Down" style={styles.button}
+                                onPress={this.onButtonPress.bind(this, controller.name, "down")}/>
+                    </View>
+                </View>
+            );
+        }
+
+        let controllersSwiper = (
+            <Swiper showsButtons={true}>
+                {controllers}
+            </Swiper>
+        );
+
+        this.setState({controllers: controllersSwiper});
+    }
+
+    listConstrollers() {
+        this.lastCommand = "list;";
+        try {
+            this.connection.write("list;");
+        } catch (err) {
+            Alert.alert("Failed to fetch controllers!", err.message);
+            this.disconnectTcp();
+        }
+    }
+
+    removeControllers() {
+        this.setState({ controllers: defaultConstrollers });
+    }
+
+    render() {
+        return (
+            <SafeAreaView style={styles.container}>
+                <View style={styles.title}>
+                    <Text style={styles.title}>Blinds Control</Text>
+                </View>
+                <View style={styles.status}>
+                    <TextInput style={styles.statusText} placeholder="IP ADDRESS"
+                            onChangeText={this.onIPChanged} value={this.state.ip}/>
+                    <Text style={styles.statusText}>{this.state.status}</Text>
+                </View>
+                <View>
+                    <Button title={this.state.status == "connected" ? "Disconnect" : "Connect"}
+                            onPress={this.onConnectButtonPress}/>
+                </View>
+                {this.state.controllers}
+            </SafeAreaView>
+        );
+    }
+
+    // callbacks
+
+    onAppStateChanged = (state) => {
         console.log("state chaged:", state);
         if (state == "active") {
             AsyncStorage.getItem("connected").then((value) => {
@@ -133,7 +267,7 @@ export default class BlindsControl extends Component {
         }
     }
 
-    connectButtonPress = () => {
+    onConnectButtonPress = () => {
         if (this.state.status != "connected") {
             this.connectTcp();
         } else {
@@ -141,145 +275,25 @@ export default class BlindsControl extends Component {
         }
     }
 
-    ipChanged = (value) => {
+    onIPChanged = (value) => {
         this.setState({"ip": value});
         AsyncStorage.setItem("ip", value);
     }
 
-    connectTcp = (fromAppState = false) => {
-        AsyncStorage.getItem("ip").then((ip) => {
-            console.log("connectTcp", ip);
-            this.connection = TcpSocket.createConnection({ host: ip, port: 1234 });
-            this.connection.on("connect", () => {
-                this.setState({ status: "connected" });
-                this.createControllers();
-            });
-            this.connection.on("error", (msg) => {
-                Alert.alert("Connection error!", msg);
-                this.disconnectTcp();
-            });
-            this.connection.on("data", this.dataCallback);
-
-            if (!fromAppState) {
-                return AsyncStorage.setItem("connected", "1");
-            }
-        })
-    }
-
-    disconnectTcp = (fromAppState = false) => {
-        console.log("disconnectTcp");
-        this.connection && this.connection.destroy();
-        this.connection = null
-        this.setState({ status: "disconnected" });
-        this.removeControllers();
-
-        if (!fromAppState) {
-            return AsyncStorage.setItem("connected", "0");
-        }
-    }
-
-    sendCommand = (command) => {
-        this.lastCommand = command;
-        console.log(command);
-        try {
-            this.connection.write(command);
-        } catch (err) {
-            Alert.alert("Failed to send command!", err.message);
-            this.disconnectTcp();
-        }
-    }
-
-    buttonPress = (name, button) => {
+    onButtonPress = (name, button) => {
         this.sendCommand(`broadcast ${name} ${button};`);
     }
 
-    dataCallback = (data) => {
+    onDataCallback = (data) => {
         console.log(`Got response for command '${this.lastCommand}'.`)
-        if (this.lastCommand.startsWith("list"))
-        {
-            let list = data.toString();
-            try {
-                list = JSON.parse(list);
-            } catch (err) {
-                Alert.alert("Failed to parse controllers list!", err);
-            }
-
-            console.log(`Found ${list.length} controllers.`);
-
-            if (list.length == 0) {
-                Alert.alert("No controllers found!");
-                return;
-            }
-
-            let controllers = []
-            for (let i = 0; i < list.length; ++i) {
-                const controller = list[i];
-                controllers.push(
-                    <View key={i} style={styles.controller}>
-                        <View style={styles.controllerHeading}>
-                            <Text style={styles.controllerName}>{controller.name}</Text>
-                            <OpacityButton style={styles.progButton} titleStyle={styles.progButtonTitle}
-                                    title="P" onPress={this.buttonPress.bind(this, controller.name, "prog")}/>
-                        </View>
-                        <View style={styles.buttons}>
-                            <OpacityButton title="Up" style={styles.button}
-                                    onPress={this.buttonPress.bind(this, controller.name, "up")}/>
-                            <OpacityButton title="My" style={styles.buttonMy}
-                                    onPress={this.buttonPress.bind(this, controller.name, "my")}/>
-                            <OpacityButton title="Down" style={styles.button}
-                                    onPress={this.buttonPress.bind(this, controller.name, "down")}/>
-                        </View>
-                    </View>
-                );
-            }
-
-            let controllersSwiper = (
-                <Swiper showsButtons={true} index={5}>
-                    {controllers}
-                </Swiper>
-            );
-
-            this.setState({controllers: controllersSwiper});
+        if (this.lastCommand.startsWith("list")) {
+            this.createControllers(data.toString());
         } else {
             console.log(data.toString());
         }
 
         this.lastCommand = "";
     };
-
-    createControllers = () => {
-        this.lastCommand = "list;";
-        try {
-            this.connection.write("list;");
-        } catch (err) {
-            Alert.alert("Failed to fetch controllers!", err.message);
-            this.disconnectTcp();
-        }
-    }
-
-    removeControllers = () => {
-        this.setState({ controllers: defaultConstrollers });
-    }
-
-    render() {
-        return (
-            <SafeAreaView style={styles.container}>
-                <View style={styles.title}>
-                    <Text style={styles.title}>Blinds Control</Text>
-                </View>
-                <View style={styles.status}>
-                    <TextInput style={styles.statusText} placeholder="IP ADDRESS"
-                            onChangeText={this.ipChanged} value={this.state.ip}/>
-                    <Text style={styles.statusText}>{this.state.status}</Text>
-                </View>
-                <View>
-                    <Button title={this.state.status == "connected" ? "Disconnect" : "Connect"}
-                            onPress={this.connectButtonPress}/>
-                </View>
-                {this.state.controllers}
-            </SafeAreaView>
-        );
-    }
 }
 
 const styles = StyleSheet.create({
