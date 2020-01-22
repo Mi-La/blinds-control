@@ -25,28 +25,69 @@ import AsyncStorage from "@react-native-community/async-storage";
 const DEFAULT_IP="";
 
 const OpacityButton = (props) => {
-    const { title = "PRESS", style, titleStyle, onPress } = props;
+    const { title = "PRESS", disabled = false, style, titleStyle, disabledStyle, disabledTitleStyle,
+            onPress, opacity = 0.5 } = props;
 
     const defaultStyles = StyleSheet.create({
         button: {
             borderRadius: 2,
             justifyContent: "center",
             alignItems: "center",
-            backgroundColor: "#2196F3"
+            backgroundColor: "#2196F3",
+            elevation: 4
         },
         title: {
-            fontSize: 18,
             textTransform: "uppercase",
+            fontWeight: '500',
             color: "white",
+            margin: 8
+        },
+        disabledButton: {
+            backgroundColor: "#dfdfdf"
+        },
+        disabledTitle: {
+            color: "#a1a1a1"
         }
     });
 
+    composedStyle = [ defaultStyles.button, style ];
+    if (disabled) {
+        composedStyle.push(defaultStyles.disabledButton);
+        composedStyle.push(disabledStyle);
+    }
+
+    composedTitleStyle = [ defaultStyles.title, titleStyle ];
+    if (disabled) {
+        composedTitleStyle.push(defaultStyles.disabledTitle);
+        composedTitleStyle.push(disabledTitleStyle);
+    }
+
     return (
-        <TouchableOpacity onPress={onPress} style={[defaultStyles.button, style]}>
-            <Text style={[defaultStyles.title, titleStyle]}>{title}</Text>
+        <TouchableOpacity onPress={onPress} style={composedStyle} activeOpacity={opacity}
+                disabled={disabled}>
+            <Text style={composedTitleStyle}>{title}</Text>
         </TouchableOpacity>
     );
 }
+
+const DefaultControllers = () => {
+    return (
+        <View style={styles.controller}>
+            <View style={styles.controllerHeading}>
+                <Text style={styles.controllerName}></Text>
+                <OpacityButton style={[styles.progButton]} titleStyle={[styles.progButtonTitle]} title="P"
+                        disabled={true}/>
+            </View>
+            <View style={styles.buttons}>
+                <OpacityButton title="Up" style={styles.button} disabled={true}/>
+                <OpacityButton title="My" style={styles.buttonMy} disabled={true}/>
+                <OpacityButton title="Down" style={styles.button} disabled={true}/>
+            </View>
+        </View>
+    );
+}
+
+const defaultConstrollers = (<DefaultControllers/>);
 
 export default class BlindsControl extends Component {
     constructor() {
@@ -55,7 +96,7 @@ export default class BlindsControl extends Component {
         this.state = {
             status: "disconnected",
             ip: DEFAULT_IP,
-            controllers: null
+            controllers: defaultConstrollers
         };
         this.connection = null;
         this.lastCommand = "";
@@ -78,26 +119,34 @@ export default class BlindsControl extends Component {
     }
 
     appStateChanged = (state) => {
-        if (state == "active")
-            this.connectTcp();
-        else
-            this.disconnectTcp();
+        console.log("state chaged:", state);
+        if (state == "active") {
+            AsyncStorage.getItem("connected").then((value) => {
+                if (value == "1") {
+                    this.connectTcp(true);
+                }
+            });
+        } else {
+            if (this.state.status == "connected") {
+                this.disconnectTcp(true);
+            }
+        }
     }
 
     connectButtonPress = () => {
-        if (this.state.status != "connected")
+        if (this.state.status != "connected") {
             this.connectTcp();
-        else
+        } else {
             this.disconnectTcp();
+        }
     }
 
     ipChanged = (value) => {
-        AsyncStorage.setItem("ip", value).then(() => {
-            this.setState({"ip": value});
-        });
+        this.setState({"ip": value});
+        AsyncStorage.setItem("ip", value);
     }
 
-    connectTcp = () => {
+    connectTcp = (fromAppState = false) => {
         AsyncStorage.getItem("ip").then((ip) => {
             console.log("connectTcp", ip);
             this.connection = TcpSocket.createConnection({ host: ip, port: 1234 });
@@ -107,23 +156,37 @@ export default class BlindsControl extends Component {
             });
             this.connection.on("error", (msg) => {
                 Alert.alert("Connection error!", msg);
+                this.disconnectTcp();
             });
             this.connection.on("data", this.dataCallback);
+
+            if (!fromAppState) {
+                return AsyncStorage.setItem("connected", "1");
+            }
         })
     }
 
-    disconnectTcp = () => {
+    disconnectTcp = (fromAppState = false) => {
         console.log("disconnectTcp");
-        this.connection.destroy();
+        this.connection && this.connection.destroy();
         this.connection = null
         this.setState({ status: "disconnected" });
         this.removeControllers();
+
+        if (!fromAppState) {
+            return AsyncStorage.setItem("connected", "0");
+        }
     }
 
     sendCommand = (command) => {
         this.lastCommand = command;
         console.log(command);
-        this.connection.write(command);
+        try {
+            this.connection.write(command);
+        } catch (err) {
+            Alert.alert("Failed to send command!", err.message);
+            this.disconnectTcp();
+        }
     }
 
     buttonPress = (name, button) => {
@@ -143,6 +206,11 @@ export default class BlindsControl extends Component {
 
             console.log(`Found ${list.length} controllers.`);
 
+            if (list.length == 0) {
+                Alert.alert("No controllers found!");
+                return;
+            }
+
             let controllers = []
             for (let i = 0; i < list.length; ++i) {
                 const controller = list[i];
@@ -154,11 +222,11 @@ export default class BlindsControl extends Component {
                                     title="P" onPress={this.buttonPress.bind(this, controller.name, "prog")}/>
                         </View>
                         <View style={styles.buttons}>
-                            <Button title="Up"
+                            <OpacityButton title="Up" style={styles.button}
                                     onPress={this.buttonPress.bind(this, controller.name, "up")}/>
-                            <Button title="My"
+                            <OpacityButton title="My" style={styles.buttonMy}
                                     onPress={this.buttonPress.bind(this, controller.name, "my")}/>
-                            <Button title="Down"
+                            <OpacityButton title="Down" style={styles.button}
                                     onPress={this.buttonPress.bind(this, controller.name, "down")}/>
                         </View>
                     </View>
@@ -166,7 +234,7 @@ export default class BlindsControl extends Component {
             }
 
             let controllersSwiper = (
-                <Swiper showsButtons={true}>
+                <Swiper showsButtons={true} index={5}>
                     {controllers}
                 </Swiper>
             );
@@ -181,11 +249,16 @@ export default class BlindsControl extends Component {
 
     createControllers = () => {
         this.lastCommand = "list;";
-        this.connection.write("list;");
+        try {
+            this.connection.write("list;");
+        } catch (err) {
+            Alert.alert("Failed to fetch controllers!", err.message);
+            this.disconnectTcp();
+        }
     }
 
     removeControllers = () => {
-        this.setState({ controllers: null });
+        this.setState({ controllers: defaultConstrollers });
     }
 
     render() {
@@ -196,7 +269,7 @@ export default class BlindsControl extends Component {
                 </View>
                 <View style={styles.status}>
                     <TextInput style={styles.statusText} placeholder="IP ADDRESS"
-                            onChangeText={this.ipChanged}>{this.state.ip}</TextInput>
+                            onChangeText={this.ipChanged} value={this.state.ip}/>
                     <Text style={styles.statusText}>{this.state.status}</Text>
                 </View>
                 <View>
@@ -226,7 +299,6 @@ const styles = StyleSheet.create({
     },
     statusText: {
         fontSize: 16,
-        textAlign: "right",
         textAlignVertical: "center",
     },
     controller: {
@@ -235,33 +307,44 @@ const styles = StyleSheet.create({
     },
     controllerHeading: {
         flexDirection: "row",
+        height: 40,
         width: "100%",
+        alignItems: "center"
     },
     progButton: {
-        height: 20,
-        width: 20,
-        borderRadius: 10,
+        height: 30,
+        width: 30,
+        borderRadius: 15,
         backgroundColor: "grey",
         position: "absolute",
-        right: 10,
-        top: 10,
-        elevation: 1
+        right: 10
     },
     progButtonTitle: {
-        fontSize: 10,
-        color: "black"
+        fontSize: 12,
+        color: "black",
+        margin: 0
     },
     controllerName: {
-        height: 40,
         fontSize: 24,
-        fontWeight: "bold",
-        textAlignVertical: "center",
         width: "100%",
         textAlign: "center"
     },
     buttons: {
         flex: 1,
+        width: "100%",
         flexDirection: "column",
-        justifyContent: "space-around"
+        justifyContent: "space-around",
+        alignItems: "center",
+        marginBottom: 40 // controllerHeading.height
+    },
+    button: {
+        height: "20%",
+        width: "30%",
+        borderRadius: 50
+    },
+    buttonMy: {
+        height: "25%",
+        width: "40%",
+        borderRadius: 60
     }
 });
