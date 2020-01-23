@@ -304,7 +304,8 @@ export default class BlindsControl extends Component {
     }
 
     onButtonPress = (name, button) => {
-        this.sendCommand(`broadcast ${name} ${button};`);
+        let nameEscaped = name.replace(/"/g, "\\\"");
+        this.sendCommand(`broadcast "${nameEscaped}" ${button};`);
     }
 
     onDataCallback = (data) => {
