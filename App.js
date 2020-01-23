@@ -327,20 +327,21 @@ const styles = StyleSheet.create({
         fontSize: 24,
         fontWeight: "bold",
         textAlign: "center",
-        backgroundColor: "lightgrey"
+        backgroundColor: "#c6c2b6"
     },
     status: {
         flexDirection: "row",
         justifyContent: "space-between",
-        backgroundColor: "lightgrey",
+        backgroundColor: "#c6c2b6"
     },
     statusText: {
         fontSize: 16,
-        textAlignVertical: "center",
+        textAlignVertical: "center"
     },
     controller: {
         flex: 1,
-        alignItems: "center"
+        alignItems: "center",
+        backgroundColor: "#c6c2b6"
     },
     controllerHeading: {
         flexDirection: "row",
