@@ -22,8 +22,6 @@ import TcpSocket from "react-native-tcp-socket";
 import Swiper from "react-native-swiper";
 import AsyncStorage from "@react-native-community/async-storage";
 
-const DEFAULT_IP="";
-
 const OpacityButton = (props) => {
     const { title = "PRESS", disabled = false, style, titleStyle, disabledStyle, disabledTitleStyle,
             onPress, opacity = 0.5 } = props;
@@ -70,44 +68,71 @@ const OpacityButton = (props) => {
     );
 }
 
-const DefaultControllers = () => {
-    return (
-        <View style={styles.controller}>
-            <View style={styles.controllerHeading}>
-                <Text style={styles.controllerName}></Text>
-                <OpacityButton style={[styles.progButton]} titleStyle={[styles.progButtonTitle]} title="P"
-                        disabled={true}/>
-            </View>
-            <View style={styles.buttons}>
-                <OpacityButton title="Up" style={styles.button} disabled={true}/>
-                <OpacityButton title="My" style={styles.buttonMy} disabled={true}/>
-                <OpacityButton title="Down" style={styles.button} disabled={true}/>
-            </View>
-        </View>
-    );
+class DefaultControllers extends Component {
+    render() {
+        return (
+            <Swiper>
+                <View style={styles.controller}>
+                    <View style={styles.controllerHeading}>
+                        <Text style={styles.controllerName}></Text>
+                        <OpacityButton style={[styles.progButton]} titleStyle={[styles.progButtonTitle]} title="P"
+                                disabled={true}/>
+                    </View>
+                    <View style={styles.buttons}>
+                        <OpacityButton title="Up" style={styles.button} disabled={true}/>
+                        <OpacityButton title="My" style={styles.buttonMy} disabled={true}/>
+                        <OpacityButton title="Down" style={styles.button} disabled={true}/>
+                    </View>
+                </View>
+            </Swiper>
+        );
+    }
 }
 
-const defaultConstrollers = (<DefaultControllers/>);
+const DEFAULT_CONTROLLERS = (<DefaultControllers/>);
+
+const DEFAULT_PERSISTENCY = {
+    connected: false,
+    ip: ""
+};
+
+const PERSISTENCY_KEY = "BlindsControl.Persistency";
+
+function fetchPersistency() {
+    return AsyncStorage.getItem(PERSISTENCY_KEY).then((value) => {
+        let persistency = DEFAULT_PERSISTENCY;
+        if (value) {
+            try {
+                persistency = JSON.parse(value);
+                console.log("fetched persistency:", persistency);
+            } catch (err) {
+                console.warn("Persistency is not valied JSON, using default persistency!");
+            }
+        }
+
+        return persistency;
+    });
+}
+
+function savePersistency(persistency) {
+    console.log("saving persistency:", persistency);
+    return AsyncStorage.setItem(PERSISTENCY_KEY, JSON.stringify(persistency));
+}
 
 export default class BlindsControl extends Component {
     constructor() {
         super();
 
-        this.state = {
-            status: "disconnected",
-            ip: DEFAULT_IP,
-            controllers: defaultConstrollers
-        };
         this.connection = null;
         this.lastCommand = "";
+        this.persistency = DEFAULT_PERSISTENCY;
 
-        AsyncStorage.getItem("ip").then((value) => {
-            if (value == null) {
-                AsyncStorage.setItem("ip", this.state.ip);
-            } else {
-                this.setState({ip: value});
-            }
-        });
+        // state for UI
+        this.state = {
+            status: "disconnected",
+            controllers: DEFAULT_CONTROLLERS,
+            ip: this.persistency.ip
+        };
     }
 
     componentDidMount() {
@@ -119,23 +144,21 @@ export default class BlindsControl extends Component {
     }
 
     connectTcp(fromAppState = false) {
-        AsyncStorage.getItem("ip").then((ip) => {
-            console.log("connectTcp", ip);
-            this.connection = TcpSocket.createConnection({ host: ip, port: 1234 });
-            this.connection.on("connect", () => {
-                this.setState({ status: "connected" });
-                this.listConstrollers();
-            });
-            this.connection.on("error", (msg) => {
-                Alert.alert("Connection error!", msg);
-                this.disconnectTcp();
-            });
-            this.connection.on("data", this.onDataCallback);
+        console.log("connectTcp", this.persistency.ip, " (ui: ", this.state.ip, ")");
+        this.connection = TcpSocket.createConnection({ host: this.persistency.ip, port: 1234 });
+        this.connection.on("connect", () => {
+            this.setState({ status: "connected" });
+            this.listConstrollers();
+        });
+        this.connection.on("error", (msg) => {
+            Alert.alert("Connection error!", msg);
+            this.disconnectTcp();
+        });
+        this.connection.on("data", this.onDataCallback);
 
-            if (!fromAppState) {
-                return AsyncStorage.setItem("connected", "1");
-            }
-        })
+        if (!fromAppState) {
+            this.persistency.connected = true;
+        }
     }
 
     disconnectTcp(fromAppState = false) {
@@ -146,7 +169,7 @@ export default class BlindsControl extends Component {
         this.removeControllers();
 
         if (!fromAppState) {
-            return AsyncStorage.setItem("connected", "0");
+            this.persistency.connected = false;
         }
     }
 
@@ -161,21 +184,15 @@ export default class BlindsControl extends Component {
         }
     }
 
-    parseJSON(string) {
-        let parsed = null;
+    createControllers(data) {
+        let list = null;
         try {
-            parsed = JSON.parse(string);
+            list = JSON.parse(data.toString());
         } catch (err) {
             Alert.alert("Failed to parse controllers list!", err);
             this.disconnectTcp();
-        }
-        return parsed;
-    }
-
-    createControllers(data) {
-        let list = this.parseJSON(data.toString());
-        if (!list)
             return;
+        }
 
         if (list.length == 0) {
             Alert.alert("No controllers found!");
@@ -207,13 +224,13 @@ export default class BlindsControl extends Component {
             );
         }
 
-        let controllersSwiper = (
-            <Swiper showsButtons={true}>
+        let swiper = (
+            <Swiper showsButtons={controllers.length > 1}>
                 {controllers}
             </Swiper>
         );
 
-        this.setState({controllers: controllersSwiper});
+        this.setState({controllers: swiper});
     }
 
     listConstrollers() {
@@ -227,7 +244,7 @@ export default class BlindsControl extends Component {
     }
 
     removeControllers() {
-        this.setState({ controllers: defaultConstrollers });
+        this.setState({ controllers: DEFAULT_CONTROLLERS });
     }
 
     render() {
@@ -254,9 +271,12 @@ export default class BlindsControl extends Component {
 
     onAppStateChanged = (state) => {
         console.log("state chaged:", state);
+
         if (state == "active") {
-            AsyncStorage.getItem("connected").then((value) => {
-                if (value == "1") {
+            return fetchPersistency().then((persistency) => {
+                this.persistency = persistency;
+                this.setState({ ip: this.persistency.ip });
+                if (this.persistency.connected) {
                     this.connectTcp(true);
                 }
             });
@@ -264,6 +284,7 @@ export default class BlindsControl extends Component {
             if (this.state.status == "connected") {
                 this.disconnectTcp(true);
             }
+            return savePersistency(this.persistency);
         }
     }
 
@@ -276,8 +297,8 @@ export default class BlindsControl extends Component {
     }
 
     onIPChanged = (value) => {
-        this.setState({"ip": value});
-        AsyncStorage.setItem("ip", value);
+        this.persistency.ip = value;
+        this.setState({ ip: this.persistency.ip });
     }
 
     onButtonPress = (name, button) => {
