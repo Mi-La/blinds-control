@@ -93,7 +93,8 @@ const DEFAULT_CONTROLLERS = (<DefaultControllers/>);
 
 const DEFAULT_PERSISTENCY = {
     connected: false,
-    ip: ""
+    ip: "",
+    controllerIndex: 0
 };
 
 const PERSISTENCY_KEY = "BlindsControl.Persistency";
@@ -124,7 +125,7 @@ export default class BlindsControl extends Component {
         super();
 
         this.connection = null;
-        this.lastCommand = "";
+        this.currentCommand = "";
         this.persistency = DEFAULT_PERSISTENCY;
 
         // state for UI
@@ -174,7 +175,7 @@ export default class BlindsControl extends Component {
     }
 
     sendCommand(command) {
-        this.lastCommand = command;
+        this.currentCommand = command;
         console.log(command);
         try {
             this.connection.write(command);
@@ -225,7 +226,8 @@ export default class BlindsControl extends Component {
         }
 
         let swiper = (
-            <Swiper showsButtons={controllers.length > 1}>
+            <Swiper showsButtons={controllers.length > 1} index={this.persistency.controllerIndex}
+                    onIndexChanged={(index)=> { this.persistency.controllerIndex = index; }}>
                 {controllers}
             </Swiper>
         );
@@ -234,9 +236,9 @@ export default class BlindsControl extends Component {
     }
 
     listConstrollers() {
-        this.lastCommand = "list;";
+        this.currentCommand = "list;";
         try {
-            this.connection.write("list;");
+            this.connection.write("list;"); // will be processed in onDataCallback
         } catch (err) {
             Alert.alert("Failed to fetch controllers!", err.message);
             this.disconnectTcp();
@@ -306,14 +308,14 @@ export default class BlindsControl extends Component {
     }
 
     onDataCallback = (data) => {
-        console.log(`Got response for command '${this.lastCommand}'.`)
-        if (this.lastCommand.startsWith("list")) {
+        console.log(`Got response for command '${this.currentCommand}'.`)
+        if (this.currentCommand.startsWith("list")) {
             this.createControllers(data.toString());
         } else {
             console.log(data.toString());
         }
 
-        this.lastCommand = "";
+        this.currentCommand = "";
     };
 }
 
