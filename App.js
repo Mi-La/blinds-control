@@ -185,12 +185,12 @@ export default class BlindsControl extends Component {
         }
     }
 
-    createControllers(data) {
+    createControllers(jsonString) {
         let list = null;
         try {
-            list = JSON.parse(data.toString());
+            list = JSON.parse(jsonString);
         } catch (err) {
-            Alert.alert("Failed to parse controllers list!", err);
+            Alert.alert("Failed to parse controllers list!", err.message);
             this.disconnectTcp();
             return;
         }
@@ -202,6 +202,10 @@ export default class BlindsControl extends Component {
         }
 
         console.log(`Found ${list.length} controllers.`);
+
+        list.sort((lhs, rhs) => {
+            return rhs.priority - lhs.priority; // greater priority first
+        });
 
         let controllers = []
         for (let i = 0; i < list.length; ++i) {
