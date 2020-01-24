@@ -91,9 +91,11 @@ class DefaultControllers extends Component {
 
 const DEFAULT_CONTROLLERS = (<DefaultControllers/>);
 
+const DEFAULT_PORT = 0xCAFE;
+
 const DEFAULT_PERSISTENCY = {
     connected: false,
-    ip: "",
+    address: "",
     controllerIndex: 0
 };
 
@@ -120,6 +122,15 @@ function savePersistency(persistency) {
     return AsyncStorage.setItem(PERSISTENCY_KEY, JSON.stringify(persistency));
 }
 
+function parseAddress(address) {
+    let addressToParse = address || ":";
+    splitted = addressToParse.split(':');
+    if (splitted.length == 1) {
+        splitted.push(DEFAULT_PORT);
+    }
+    return { ip: splitted[0], port: splitted[1] };
+}
+
 export default class BlindsControl extends Component {
     constructor() {
         super();
@@ -132,7 +143,7 @@ export default class BlindsControl extends Component {
         this.state = {
             status: "disconnected",
             controllers: DEFAULT_CONTROLLERS,
-            ip: this.persistency.ip
+            address: this.persistency.address
         };
     }
 
@@ -145,8 +156,9 @@ export default class BlindsControl extends Component {
     }
 
     connectTcp(fromAppState = false) {
-        console.log("connectTcp", this.persistency.ip, " (ui: ", this.state.ip, ")");
-        this.connection = TcpSocket.createConnection({ host: this.persistency.ip, port: 1234 });
+        console.log("connectTcp", this.persistency.address);
+        address = parseAddress(this.persistency.address);
+        this.connection = TcpSocket.createConnection({ host: address.ip, port: address.port });
         this.connection.on("connect", () => {
             this.setState({ status: "connected" });
             this.listConstrollers();
@@ -261,7 +273,7 @@ export default class BlindsControl extends Component {
                 </View>
                 <View style={styles.status}>
                     <TextInput style={styles.statusText} placeholder="IP ADDRESS"
-                            onChangeText={this.onIPChanged} value={this.state.ip}/>
+                            onChangeText={this.onAddressChanged} value={this.state.address}/>
                     <Text style={styles.statusText}>{this.state.status}</Text>
                 </View>
                 <View>
@@ -281,7 +293,7 @@ export default class BlindsControl extends Component {
         if (state == "active") {
             return fetchPersistency().then((persistency) => {
                 this.persistency = persistency;
-                this.setState({ ip: this.persistency.ip });
+                this.setState({ address: this.persistency.address });
                 if (this.persistency.connected) {
                     this.connectTcp(true);
                 }
@@ -302,9 +314,9 @@ export default class BlindsControl extends Component {
         }
     }
 
-    onIPChanged = (value) => {
-        this.persistency.ip = value;
-        this.setState({ ip: this.persistency.ip });
+    onAddressChanged = (value) => {
+        this.persistency.address = value;
+        this.setState({ address: this.persistency.address });
     }
 
     onButtonPress = (name, button) => {
